@@ -1,0 +1,37 @@
+{
+  "protocol": 3,
+  "initial_cash": 100000,
+  "initial_weight": 0.39953,
+  "anchor_date": "2024-12-31",
+  "anchor_close": 3351.76,
+  "cost": 0,
+  "min_trade_cny": 1000,
+  "index_to_nav": 1000,
+  "protocol_hash": "82c2fc33",
+  "prompt_hash": "5feaf52a",
+  "prices": "data/runs/prices.json",
+  "runs": [
+    {
+      "id": "none",
+      "run_id": "82c2fc33_5feaf52a_none",
+      "trader": "Trader_A",
+      "diet": "只看交易信息",
+      "news": "none",
+      "protocol_hash": "82c2fc33",
+      "prompt_hash": "5feaf52a",
+      "current": true,
+      "events": "data/runs/82c2fc33_5feaf52a_none/events.jsonl"
+    },
+    {
+      "id": "wind",
+      "run_id": "82c2fc33_5feaf52a_wind",
+      "trader": "Trader_B",
+      "diet": "阅读财经新闻",
+      "news": "wind",
+      "protocol_hash": "82c2fc33",
+      "prompt_hash": "5feaf52a",
+      "current": true,
+      "events": "data/runs/82c2fc33_5feaf52a_wind/events.jsonl"
+    }
+  ]
+}

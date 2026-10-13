@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>交易笔记</title>
+  <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.31/dist/uPlot.min.css" />
+  <style>
+    :root {
+      --bg: #0b0d10; --panel: #14181e; --line: #232a33; --text: #e8edf2;
+      --muted: #8b97a5; --a: #7aa2ff; --b: #3ecf8e; --down: #f07178;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", "PingFang SC", sans-serif; }
+    header { padding: 20px 24px 12px; border-bottom: 1px solid var(--line); }
+    header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .04em; }
+    header p { margin: 8px 0 0; color: var(--muted); font-size: 13px; max-width: 72em; }
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 24px 0; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+    .card h2 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
+    .card .id { color: var(--text); font-weight: 600; }
+    .equity { font-size: 28px; font-variant-numeric: tabular-nums; }
+    .delta { font-size: 13px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .delta.up { color: var(--b); } .delta.down { color: var(--down); }
+    .stats { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+    .stats b { color: var(--text); font-weight: 500; }
+    .chart-wrap { display: flex; flex-direction: column; gap: 16px; padding: 16px 24px 0; }
+    .chart-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .chart-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px 8px; }
+    .chart-box h2 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 500; }
+    .tip { min-height: 1.4em; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-bottom: 6px; }
+    .tape { padding: 8px 24px 32px; }
+    table { width: 100%; table-layout: auto; border-collapse: collapse; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; white-space: nowrap; }
+    th { color: var(--muted); font-weight: 500; font-size: 12px; }
+    td { font-variant-numeric: tabular-nums; }
+    .side-buy { color: var(--b); } .side-sell { color: var(--down); } .side-hold { color: var(--muted); }
+    th.rationale, td.rationale { width: 99%; white-space: normal; }
+    .arm { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+    .arm.none { background: #1b2740; color: var(--a); }
+    .arm.wind { background: #143226; color: var(--b); }
+    .empty { color: var(--muted); padding: 24px; }
+    .filters { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+    .filters button { background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+    .filters button.active { color: var(--text); border-color: var(--text); }
+    @media (max-width: 800px) {
+      .cards, .chart-pair { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>交易笔记</h1>
+    <p>两名“大模型”基民的交易笔记。一名只看过往交易、持仓信息，一名额外阅读当日财经早餐。<br>初始时间为2025年1月，账户总资产10万元，其中，40%基金，60%现金。本次模型为DeepSeek-V4.1 Flash。</p>
+  </header>
+  <section class="cards" id="cards"></section>
+  <section class="chart-wrap">
+    <div class="chart-box">
+      <h2>净值。上证指数线按 2024-12-31 收盘满仓折成 10 万元。</h2>
+      <div class="tip" id="tip-equity">将鼠标移到曲线上查看当日涨跌幅</div>
+      <div id="chart-equity"></div>
+    </div>
+    <div class="chart-box">
+      <h2>仓位。收盘后基金市值占权益的比例，纵轴 0 到 100%。</h2>
+      <div class="tip" id="tip-weight">将鼠标移到曲线上查看当日仓位</div>
+      <div id="chart-weight"></div>
+    </div>
+    <div class="chart-pair">
+      <div class="chart-box">
+        <h2>情绪</h2>
+        <div class="tip" id="tip-mood">将鼠标移到阶梯上查看当日情绪</div>
+        <div id="chart-mood"></div>
+      </div>
+      <div class="chart-box">
+        <h2>把握</h2>
+        <div class="tip" id="tip-confidence">将鼠标移到阶梯上查看当日把握</div>
+        <div id="chart-confidence"></div>
+      </div>
+    </div>
+  </section>
+  <section class="tape">
+    <div class="filters" id="filters">
+      <button type="button" data-filter="all" class="active">全部</button>
+      <button type="button" data-filter="none">Trader_A</button>
+      <button type="button" data-filter="wind">Trader_B</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>股民</th><th>日期</th><th>方向</th><th>数量</th><th>金额</th>
+          <th>情绪</th><th>把握</th><th class="rationale">决策依据</th><th>现金</th><th>净值</th><th>盈亏</th><th>盈亏比例</th>
+        </tr>
+      </thead>
+      <tbody id="tape"></tbody>
+    </table>
+    <p class="empty" id="hint">请在 demo_trader 根目录执行 python -m http.server 8765 后打开 /web/</p>
+  </section>
+  <script src="https://unpkg.com/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+  <script>
+    const FALLBACK = {
+      none: { trader: "Trader_A", diet: "只看交易信息" },
+      wind: { trader: "Trader_B", diet: "阅读财经新闻" }
+    };
+    const MOOD_SCORE = { "恐慌": -2, "担心": -1, "平静": 0, "乐观": 1, "亢奋": 2 };
+    const CONF_SCORE = { "极低": 1, "偏低": 2, "中等": 3, "偏高": 4, "极高": 5 };
+    const MOOD_WORD = ["恐慌", "担心", "平静", "乐观", "亢奋"];
+    const CONF_WORD = [null, "极低", "偏低", "中等", "偏高", "极高"];
+    const PLOTS = [];
+    function money(n) {
+      if (n == null || Number.isNaN(Number(n))) return "—";
+      return Number(n).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function pct(n) {
+      if (n == null || Number.isNaN(Number(n))) return "—";
+      return (Number(n) * 100).toFixed(2) + "%";
+    }
+    function pctFrom(value, base) {
+      if (base == null || base === 0) return null;
+      return (value - base) / base;
+    }
+    function dietId(run) {
+      return run.news || run.id;
+    }
+    function metaOf(run) {
+      const id = dietId(run);
+      return {
+        trader: run.trader || (FALLBACK[id] || {}).trader || id,
+        diet: run.diet || (FALLBACK[id] || {}).diet || ""
+      };
+    }
+    function summarize(events, initial) {
+      let peak = initial;
+      let maxDd = 0;
+      let weightSum = 0;
+      let weightN = 0;
+      let trades = 0;
+      let amountSum = 0;
+      let equitySum = 0;
+      let equityN = 0;
+      events.forEach(function (ev) {
+        const eq = ev.eod && ev.eod.equity;
+        if (eq != null) {
+          peak = Math.max(peak, eq);
+          if (peak > 0) maxDd = Math.max(maxDd, (peak - eq) / peak);
+          equitySum += eq;
+          equityN += 1;
+        }
+        const w = ev.eod && ev.eod.weight;
+        if (w != null) { weightSum += Number(w); weightN += 1; }
+        if (ev.side && ev.side !== "hold") trades += 1;
+        amountSum += Number(ev.amount || 0);
+      });
+      return {
+        maxDd: maxDd,
+        avgWeight: weightN ? weightSum / weightN : null,
+        trades: trades,
+        turnover: equityN && equitySum ? amountSum / (equitySum / equityN) : null
+      };
+    }
+    async function loadJsonl(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(url + " " + res.status);
+      return (await res.text()).split("\n").filter(Boolean).map(function (line) { return JSON.parse(line); });
+    }
+    function card(run, events, initial) {
+      const last = events[events.length - 1];
+      const eod = last ? last.eod : null;
+      const change = eod ? pctFrom(eod.equity, initial) : null;
+      const cls = change != null && change >= 0 ? "up" : "down";
+      const m = metaOf(run);
+      const s = summarize(events, initial);
+      return '<article class="card"><h2><span class="id">' + m.trader + "</span> · " + m.diet +
+        '</h2><div class="equity">' + (eod ? money(eod.equity) : "—") + '</div><div class="delta ' + cls + '">' +
+        (eod ? (eod.pnl >= 0 ? "+" : "") + money(eod.pnl) + " · " + pct(change) : "") + "</div>" +
+        '<div class="stats"><span>最大回撤 <b>' + pct(s.maxDd) + "</b></span>" +
+        "<span>平均仓位 <b>" + pct(s.avgWeight) + "</b></span>" +
+        "<span>调仓 <b>" + s.trades + "</b> 次</span>" +
+        "<span>累计换手 <b>" + pct(s.turnover) + "</b></span></div></article>";
+    }
+    function row(ev, run) {
+      const b = ev.book || {};
+      const m = metaOf(run);
+      const side = ev.side || "";
+      const id = dietId(run);
+      return "<tr data-trader='" + id + "'><td><span class='arm " + id + "'>" + m.trader + "</span></td><td>" + toDay(ev.ts || ev.session || "") +
+        "</td><td class='side-" + side + "'>" + side + "</td><td>" + (ev.qty ?? "") +
+        "</td><td>" + money(ev.amount || 0) + "</td><td>" + (ev.mood || "—") + "</td><td>" + (ev.confidence || "—") +
+        "</td><td class='rationale'>" + (ev.rationale || "").replace(/</g, "&lt;") +
+        "</td><td>" + money(b.cash) + "</td><td>" + money(b.equity) + "</td><td>" + money(b.pnl) + "</td><td>" +
+        pct(b.pnl_pct) + "</td></tr>";
+    }
+    function toDay(ts) { return (ts || "").slice(0, 10); }
+    function decisionDates(bags) {
+      const daySet = new Set();
+      bags.forEach(function (bag) {
+        bag.events.forEach(function (ev) {
+          const d = toDay(ev.session || ev.ts);
+          if (d) daySet.add(d);
+        });
+      });
+      return Array.from(daySet).sort();
+    }
+    function xsOf(dates) {
+      return dates.map(function (d) { return Math.floor(new Date(d + "T15:00:00+08:00").getTime() / 1000); });
+    }
+    function column(bags, dates, pick) {
+      return bags.map(function (bag) {
+        const map = new Map();
+        bag.events.forEach(function (ev) {
+          const d = toDay(ev.session || ev.ts);
+          const v = pick(ev);
+          if (d && v != null && !Number.isNaN(v)) map.set(d, v);
+        });
+        return dates.map(function (d) { return map.has(d) ? map.get(d) : null; });
+      });
+    }
+    function xSeries() {
+      return {
+        label: "日期",
+        value: function (u, v) {
+          if (v == null) return "";
+          const d = new Date(v * 1000);
+          const p = function (n) { return String(n).padStart(2, "0"); };
+          return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+        }
+      };
+    }
+    function traderSeries(bags, extra) {
+      const colors = ["#7aa2ff", "#3ecf8e", "#c3a36a"];
+      return bags.map(function (bag, i) {
+        const spec = { label: metaOf(bag.run).trader, stroke: colors[i] || "#aaa", width: 2, spanGaps: false };
+        if (extra) Object.keys(extra).forEach(function (k) { spec[k] = extra[k]; });
+        return spec;
+      });
+    }
+    function mount(el, height, data, series, yAxis, tipEl, tipFn) {
+      const scales = yAxis.scales || { x: { time: true } };
+      const axis = {
+        stroke: "#8b97a5", grid: { stroke: "#232a33" }, ticks: { stroke: "#232a33" }
+      };
+      Object.keys(yAxis).forEach(function (k) { if (k !== "scales") axis[k] = yAxis[k]; });
+      const plot = new uPlot({
+        width: Math.max(el.clientWidth - 8, 320),
+        height: height,
+        series: series,
+        scales: scales,
+        axes: [
+          { stroke: "#8b97a5", grid: { stroke: "#232a33" }, ticks: { stroke: "#232a33" } },
+          axis
+        ],
+        legend: { show: true },
+        hooks: { setCursor: [function (u) { tipEl.textContent = tipFn(u.cursor.idx); }] }
+      }, data, el);
+      PLOTS.push({ plot: plot, el: el, height: height });
+    }
+    function drawCharts(bags, prices, initial, anchorDate, anchorClose, initialWeight) {
+      const byDate = new Map();
+      prices.forEach(function (p) { byDate.set(p.date, p); });
+      const dates = decisionDates(bags);
+      if (!dates.length) return;
+      const equityDates = dates.slice();
+      if (anchorDate && equityDates.indexOf(anchorDate) < 0) equityDates.unshift(anchorDate);
+      const baseClose = anchorClose || (byDate.get(equityDates[0]) || {}).close;
+      const equityCols = column(bags, equityDates, function (ev) { return ev.eod && ev.eod.equity; });
+      equityCols.forEach(function (col) {
+        const i = equityDates.indexOf(anchorDate);
+        if (i === 0 && col[0] == null) col[0] = initial;
+      });
+      const idxLine = equityDates.map(function (d) {
+        const close = (byDate.get(d) || {}).close;
+        if (close == null || !baseClose) return null;
+        return initial * close / baseClose;
+      });
+      const equitySeries = [xSeries()].concat(traderSeries(bags), [{ label: "上证指数", stroke: "#c3a36a", width: 2, spanGaps: true }]);
+      mount(document.getElementById("chart-equity"), 280, [xsOf(equityDates)].concat(equityCols, [idxLine]), equitySeries, {
+        values: function (u, vals) { return vals.map(function (v) { return (v / 1000).toFixed(0) + "k"; }); }
+      }, document.getElementById("tip-equity"), function (idx) {
+        if (idx == null || idx < 0) return "将鼠标移到曲线上查看当日涨跌幅";
+        const day = equityDates[idx];
+        const parts = [day];
+        bags.forEach(function (bag, i) {
+          const eq = equityCols[i][idx];
+          if (eq == null) return;
+          const chg = pctFrom(eq, initial);
+          parts.push(metaOf(bag.run).trader + " " + money(eq) + " (" + (chg >= 0 ? "+" : "") + pct(chg) + ")");
+        });
+        const close = (byDate.get(day) || {}).close;
+        if (close != null && baseClose) {
+          const ichg = pctFrom(close, baseClose);
+          parts.push("上证指数 " + close.toFixed(2) + " (" + (ichg >= 0 ? "+" : "") + pct(ichg) + ")");
+        }
+        return parts.join(" · ");
+      });
+      const weightDates = dates.slice();
+      if (anchorDate && weightDates.indexOf(anchorDate) < 0 && initialWeight != null) weightDates.unshift(anchorDate);
+      const weightCols = column(bags, weightDates, function (ev) { return ev.eod && ev.eod.weight; });
+      if (initialWeight != null && weightDates[0] === anchorDate) {
+        weightCols.forEach(function (col) { if (col[0] == null) col[0] = initialWeight; });
+      }
+      mount(document.getElementById("chart-weight"), 220, [xsOf(weightDates)].concat(weightCols), [xSeries()].concat(traderSeries(bags)), {
+        scales: { x: { time: true }, y: { range: [0, 1] } },
+        values: function (u, vals) { return vals.map(function (v) { return (v * 100).toFixed(0) + "%"; }); }
+      }, document.getElementById("tip-weight"), function (idx) {
+        if (idx == null || idx < 0) return "将鼠标移到曲线上查看当日仓位";
+        const parts = [weightDates[idx]];
+        bags.forEach(function (bag, i) {
+          const w = weightCols[i][idx];
+          if (w == null) return;
+          parts.push(metaOf(bag.run).trader + " " + pct(w));
+        });
+        return parts.join(" · ");
+      });
+      function stepPaths() {
+        return (typeof uPlot.paths === "object" && uPlot.paths.stepped)
+          ? uPlot.paths.stepped({ align: 1 }) : undefined;
+      }
+      const moodCols = column(bags, dates, function (ev) {
+        return Object.prototype.hasOwnProperty.call(MOOD_SCORE, ev.mood) ? MOOD_SCORE[ev.mood] : null;
+      });
+      const moodStep = stepPaths();
+      mount(document.getElementById("chart-mood"), 180, [xsOf(dates)].concat(moodCols), [xSeries()].concat(traderSeries(bags, moodStep ? { paths: moodStep } : null)), {
+        scales: { x: { time: true }, y: { range: [-2.4, 2.4] } },
+        splits: function () { return [-2, -1, 0, 1, 2]; },
+        values: function (u, vals) { return vals.map(function (v) { return MOOD_WORD[Math.round(v) + 2] || ""; }); }
+      }, document.getElementById("tip-mood"), function (idx) {
+        if (idx == null || idx < 0) return "将鼠标移到阶梯上查看当日情绪";
+        const parts = [dates[idx]];
+        bags.forEach(function (bag, i) {
+          const s = moodCols[i][idx];
+          if (s == null) return;
+          parts.push(metaOf(bag.run).trader + " " + (MOOD_WORD[s + 2] || ""));
+        });
+        return parts.join(" · ");
+      });
+      const confCols = column(bags, dates, function (ev) {
+        return Object.prototype.hasOwnProperty.call(CONF_SCORE, ev.confidence) ? CONF_SCORE[ev.confidence] : null;
+      });
+      const confStep = stepPaths();
+      mount(document.getElementById("chart-confidence"), 180, [xsOf(dates)].concat(confCols), [xSeries()].concat(traderSeries(bags, confStep ? { paths: confStep } : null)), {
+        scales: { x: { time: true }, y: { range: [0.6, 5.4] } },
+        splits: function () { return [1, 2, 3, 4, 5]; },
+        values: function (u, vals) { return vals.map(function (v) { return CONF_WORD[Math.round(v)] || ""; }); }
+      }, document.getElementById("tip-confidence"), function (idx) {
+        if (idx == null || idx < 0) return "将鼠标移到阶梯上查看当日把握";
+        const parts = [dates[idx]];
+        bags.forEach(function (bag, i) {
+          const s = confCols[i][idx];
+          if (s == null) return;
+          parts.push(metaOf(bag.run).trader + " " + (CONF_WORD[s] || ""));
+        });
+        return parts.join(" · ");
+      });
+      window.addEventListener("resize", function () {
+        PLOTS.forEach(function (item) {
+          item.plot.setSize({ width: Math.max(item.el.clientWidth - 8, 320), height: item.height });
+        });
+      });
+    }
+    async function main() {
+      const hint = document.getElementById("hint");
+      try {
+        const index = await fetch("../data/runs/index.json").then(function (r) { return r.json(); });
+        const initial = Number(index.initial_cash || 100000);
+        const anchorDate = index.anchor_date || "";
+        const anchorClose = Number(index.anchor_close || 0);
+        const initialWeight = index.initial_weight == null ? null : Number(index.initial_weight);
+        const prices = await fetch("../" + (index.prices || "data/runs/prices.json")).then(function (r) { return r.json(); });
+        const bags = [];
+        for (const run of index.runs) {
+          if (run.current === false) continue;
+          const events = (await loadJsonl("../" + run.events)).sort(function (a, b) {
+            return (a.session || a.ts || "").localeCompare(b.session || b.ts || "");
+          });
+          bags.push({ run: run, events: events });
+        }
+        document.getElementById("cards").innerHTML = bags.map(function (b) { return card(b.run, b.events, initial); }).join("");
+        const rank = { none: 0, wind: 1 };
+        const merged = [];
+        bags.forEach(function (b) {
+          b.events.forEach(function (ev) { merged.push({ ev: ev, run: b.run }); });
+        });
+        merged.sort(function (a, b) {
+          const da = (a.ev.session || a.ev.ts || "").localeCompare(b.ev.session || b.ev.ts || "");
+          if (da !== 0) return da;
+          return (rank[dietId(a.run)] || 0) - (rank[dietId(b.run)] || 0);
+        });
+        document.getElementById("tape").innerHTML = merged.map(function (x) { return row(x.ev, x.run); }).join("");
+        const filterBar = document.getElementById("filters");
+        function applyFilter(which) {
+          Array.prototype.forEach.call(filterBar.querySelectorAll("button"), function (btn) {
+            btn.classList.toggle("active", btn.getAttribute("data-filter") === which);
+          });
+          Array.prototype.forEach.call(document.querySelectorAll("#tape tr"), function (tr) {
+            const id = tr.getAttribute("data-trader");
+            tr.style.display = (which === "all" || id === which) ? "" : "none";
+          });
+        }
+        filterBar.addEventListener("click", function (ev) {
+          const btn = ev.target.closest("button[data-filter]");
+          if (btn) applyFilter(btn.getAttribute("data-filter"));
+        });
+        hint.textContent = merged.length
+          ? "共 " + merged.length + " 条决策（按交易日升序；同一天 Trader_A 在前）。表内净值为当日收盘、下单前的盯市。"
+          : "还没有事件。";
+        if (typeof uPlot === "function") {
+          drawCharts(bags, prices, initial, anchorDate, anchorClose, initialWeight);
+        } else {
+          document.getElementById("tip-equity").textContent = "未加载 uPlot，曲线不可用（需联网）。";
+        }
+      } catch (err) {
+        hint.textContent = "读不到 data/runs/index.json。请在 demo_trader 根目录：python -m http.server 8765";
+        console.error(err);
+      }
+    }
+    main();
+  </script>
+</body>
+</html>
