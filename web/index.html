@@ -15,7 +15,7 @@
     header { padding: 20px 24px 12px; border-bottom: 1px solid var(--line); }
     header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .04em; }
     header p { margin: 8px 0 0; color: var(--muted); font-size: 13px; max-width: 72em; }
-    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 24px 0; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 16px 24px 0; }
     .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
     .card h2 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
     .card .id { color: var(--text); font-weight: 600; }
@@ -36,6 +36,7 @@
     td { font-variant-numeric: tabular-nums; }
     .side-buy { color: var(--b); } .side-sell { color: var(--down); } .side-hold { color: var(--muted); }
     th.rationale, td.rationale { width: 99%; white-space: normal; }
+    td.note { white-space: normal; color: var(--muted); font-size: 12px; max-width: 16em; }
     .arm { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
     .arm.none { background: #1b2740; color: var(--a); }
     .arm.wind { background: #143226; color: var(--b); }
@@ -51,7 +52,7 @@
 <body>
   <header>
     <h1>交易笔记</h1>
-    <p>两名“大模型”基民的交易笔记。一名只看过往交易、持仓信息，一名额外阅读当日财经早餐。<br>初始时间为2025年1月，账户总资产10万元，其中，40%基金，60%现金。本次模型为DeepSeek-V4.1 Flash。</p>
+    <p>两名“大模型”基民的交易笔记。一名只看过往交易、持仓信息，一名额外阅读当日财经早餐。<br>初始时间为2025年1月，账户总资产10万元。本次模型为DeepSeek-V4.1 Flash。</p>
   </header>
   <section class="cards" id="cards"></section>
   <section class="chart-wrap">
@@ -88,6 +89,7 @@
       <thead>
         <tr>
           <th>股民</th><th>日期</th><th>方向</th><th>数量</th><th>金额</th>
+          <th>目标仓位</th><th>执行仓位</th>
           <th>情绪</th><th>把握</th><th class="rationale">决策依据</th><th>现金</th><th>净值</th><th>盈亏</th><th>盈亏比例</th>
         </tr>
       </thead>
@@ -128,6 +130,64 @@
         diet: run.diet || (FALLBACK[id] || {}).diet || ""
       };
     }
+    function ratio(n) {
+      if (n == null || Number.isNaN(Number(n))) return "—";
+      return Number(n).toFixed(2);
+    }
+    function stdev(xs) {
+      if (xs.length < 2) return null;
+      const m = xs.reduce(function (s, x) { return s + x; }, 0) / xs.length;
+      const v = xs.reduce(function (s, x) { return s + (x - m) * (x - m); }, 0) / (xs.length - 1);
+      return Math.sqrt(v);
+    }
+    function annualized(xs) {
+      if (xs.length < 2) return null;
+      const sd = stdev(xs);
+      const m = xs.reduce(function (s, x) { return s + x; }, 0) / xs.length;
+      if (sd == null || sd === 0) return null;
+      return m / sd * Math.sqrt(252);
+    }
+    function performance(events, index, prices) {
+      const initial = Number(index.initial_cash || 100000);
+      const navDiv = Number(index.index_to_nav || 1000);
+      const byDate = new Map();
+      prices.forEach(function (p) { byDate.set(p.date, p); });
+      const anchor = index.anchor_date || "";
+      let cash0 = index.seed_cash;
+      let shares0 = index.seed_shares;
+      if (cash0 == null || shares0 == null) {
+        const nav0 = Number(index.anchor_close || 0) / navDiv;
+        const w = Number(index.initial_weight || 0);
+        shares0 = nav0 > 0 ? initial * w / nav0 : 0;
+        cash0 = initial - shares0 * nav0;
+      }
+      function passive(date) {
+        const p = byDate.get(date);
+        if (!p) return null;
+        const nav = p.nav != null ? Number(p.nav) : Number(p.close) / navDiv;
+        return Number(cash0) + Number(shares0) * nav;
+      }
+      const agent = [initial];
+      const bench = [passive(anchor)];
+      events.forEach(function (ev) {
+        const day = (ev.session || ev.ts || "").slice(0, 10);
+        const eq = ev.eod && ev.eod.equity;
+        const b = passive(day);
+        if (!day || eq == null || b == null) return;
+        agent.push(Number(eq));
+        bench.push(b);
+      });
+      const active = [];
+      const port = [];
+      for (let i = 1; i < agent.length; i++) {
+        if (!agent[i - 1] || !bench[i - 1]) continue;
+        const rp = agent[i] / agent[i - 1] - 1;
+        const rb = bench[i] / bench[i - 1] - 1;
+        port.push(rp);
+        active.push(rp - rb);
+      }
+      return { sharpe: annualized(port), ir: annualized(active) };
+    }
     function summarize(events, initial) {
       let peak = initial;
       let maxDd = 0;
@@ -162,29 +222,70 @@
       if (!res.ok) throw new Error(url + " " + res.status);
       return (await res.text()).split("\n").filter(Boolean).map(function (line) { return JSON.parse(line); });
     }
-    function card(run, events, initial) {
+    function card(run, events, initial, index, prices) {
       const last = events[events.length - 1];
       const eod = last ? last.eod : null;
       const change = eod ? pctFrom(eod.equity, initial) : null;
       const cls = change != null && change >= 0 ? "up" : "down";
       const m = metaOf(run);
       const s = summarize(events, initial);
+      const perf = performance(events, index, prices);
       return '<article class="card"><h2><span class="id">' + m.trader + "</span> · " + m.diet +
         '</h2><div class="equity">' + (eod ? money(eod.equity) : "—") + '</div><div class="delta ' + cls + '">' +
         (eod ? (eod.pnl >= 0 ? "+" : "") + money(eod.pnl) + " · " + pct(change) : "") + "</div>" +
         '<div class="stats"><span>最大回撤 <b>' + pct(s.maxDd) + "</b></span>" +
         "<span>平均仓位 <b>" + pct(s.avgWeight) + "</b></span>" +
         "<span>调仓 <b>" + s.trades + "</b> 次</span>" +
-        "<span>累计换手 <b>" + pct(s.turnover) + "</b></span></div></article>";
+        "<span>累计换手 <b>" + pct(s.turnover) + "</b></span>" +
+        "<span title=\"年化，日收益，现金利率 0\">Sharpe <b>" + ratio(perf.sharpe) + "</b></span>" +
+        "<span title=\"相对基准日种子仓位不再交易\">IR·初始不动 <b>" + ratio(perf.ir) + "</b></span></div></article>";
+    }
+    function indexCard(index, prices, endDate) {
+      const initial = Number(index.initial_cash || 100000);
+      const anchor = index.anchor_date || "";
+      const anchorClose = Number(index.anchor_close || 0);
+      if (!anchor || !anchorClose) return "";
+      const series = prices.filter(function (p) {
+        return p.date >= anchor && (!endDate || p.date <= endDate);
+      });
+      if (series.length < 2) return "";
+      const equity = series.map(function (p) { return initial * Number(p.close) / anchorClose; });
+      let peak = equity[0];
+      let maxDd = 0;
+      equity.forEach(function (eq) {
+        peak = Math.max(peak, eq);
+        if (peak > 0) maxDd = Math.max(maxDd, (peak - eq) / peak);
+      });
+      const last = equity[equity.length - 1];
+      const change = pctFrom(last, initial);
+      const cls = change != null && change >= 0 ? "up" : "down";
+      const bench = performance(
+        series.slice(1).map(function (p) {
+          return { session: p.date, eod: { equity: initial * Number(p.close) / anchorClose } };
+        }),
+        index,
+        prices
+      );
+      return '<article class="card"><h2><span class="id">上证指数</span> · 满仓持有</h2><div class="equity">' +
+        money(last) + '</div><div class="delta ' + cls + '">' +
+        ((last - initial) >= 0 ? "+" : "") + money(last - initial) + " · " + pct(change) + "</div>" +
+        '<div class="stats"><span>最大回撤 <b>' + pct(maxDd) + "</b></span>" +
+        "<span>平均仓位 <b>100.00%</b></span>" +
+        "<span>调仓 <b>0</b> 次</span>" +
+        "<span>累计换手 <b>0.00%</b></span>" +
+        "<span title=\"年化，日收益，现金利率 0。不是常数 1。\">Sharpe <b>" + ratio(bench.sharpe) + "</b></span>" +
+        "<span title=\"满仓上证相对基准日种子仓位不再交易\">IR·初始不动 <b>" + ratio(bench.ir) + "</b></span></div></article>";
     }
     function row(ev, run) {
       const b = ev.book || {};
       const m = metaOf(run);
       const side = ev.side || "";
       const id = dietId(run);
+      const executed = ev.executed_weight != null ? ev.executed_weight : (ev.eod && ev.eod.weight);
       return "<tr data-trader='" + id + "'><td><span class='arm " + id + "'>" + m.trader + "</span></td><td>" + toDay(ev.ts || ev.session || "") +
         "</td><td class='side-" + side + "'>" + side + "</td><td>" + (ev.qty ?? "") +
-        "</td><td>" + money(ev.amount || 0) + "</td><td>" + (ev.mood || "—") + "</td><td>" + (ev.confidence || "—") +
+        "</td><td>" + money(ev.amount || 0) + "</td><td>" + pct(ev.target_weight) + "</td><td>" + pct(executed) +
+        "</td><td>" + (ev.mood || "—") + "</td><td>" + (ev.confidence || "—") +
         "</td><td class='rationale'>" + (ev.rationale || "").replace(/</g, "&lt;") +
         "</td><td>" + money(b.cash) + "</td><td>" + money(b.equity) + "</td><td>" + money(b.pnl) + "</td><td>" +
         pct(b.pnl_pct) + "</td></tr>";
@@ -373,7 +474,15 @@
           });
           bags.push({ run: run, events: events });
         }
-        document.getElementById("cards").innerHTML = bags.map(function (b) { return card(b.run, b.events, initial); }).join("");
+        const endDate = bags.reduce(function (min, bag) {
+          const last = bag.events[bag.events.length - 1];
+          const day = last ? (last.session || last.ts || "").slice(0, 10) : "";
+          if (!day) return min;
+          return !min || day < min ? day : min;
+        }, "");
+        document.getElementById("cards").innerHTML = bags.map(function (b) {
+          return card(b.run, b.events, initial, index, prices);
+        }).join("") + indexCard(index, prices, endDate);
         const rank = { none: 0, wind: 1 };
         const merged = [];
         bags.forEach(function (b) {

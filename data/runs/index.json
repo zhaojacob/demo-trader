@@ -3,14 +3,49 @@
   "initial_cash": 100000,
   "initial_weight": 0.39953,
   "anchor_date": "2024-12-31",
-  "anchor_close": 3351.76,
+  "anchor_close": 3351.763,
+  "seed_cash": 60046.99,
+  "seed_shares": 11920,
   "cost": 0,
   "min_trade_cny": 1000,
   "index_to_nav": 1000,
-  "protocol_hash": "82c2fc33",
-  "prompt_hash": "5feaf52a",
+  "protocol_hash": "2c1fda6c",
+  "prompt_hash": "2a111892",
   "prices": "data/runs/prices.json",
   "runs": [
+    {
+      "id": "none",
+      "run_id": "2c1fda6c_2a111892_none",
+      "trader": "Trader_A",
+      "diet": "只看交易信息",
+      "news": "none",
+      "protocol_hash": "2c1fda6c",
+      "prompt_hash": "2a111892",
+      "current": true,
+      "events": "data/runs/2c1fda6c_2a111892_none/events.jsonl"
+    },
+    {
+      "id": "wind",
+      "run_id": "2c1fda6c_2a111892_wind",
+      "trader": "Trader_B",
+      "diet": "阅读财经新闻",
+      "news": "wind",
+      "protocol_hash": "2c1fda6c",
+      "prompt_hash": "2a111892",
+      "current": true,
+      "events": "data/runs/2c1fda6c_2a111892_wind/events.jsonl"
+    },
+    {
+      "id": "none",
+      "run_id": "4abbcd3e_0c8d9e91_none",
+      "trader": "Trader_A",
+      "diet": "只看交易信息",
+      "news": "none",
+      "protocol_hash": "4abbcd3e",
+      "prompt_hash": "0c8d9e91",
+      "current": false,
+      "events": "data/runs/4abbcd3e_0c8d9e91_none/events.jsonl"
+    },
     {
       "id": "none",
       "run_id": "82c2fc33_5feaf52a_none",
@@ -19,8 +54,30 @@
       "news": "none",
       "protocol_hash": "82c2fc33",
       "prompt_hash": "5feaf52a",
-      "current": true,
+      "current": false,
       "events": "data/runs/82c2fc33_5feaf52a_none/events.jsonl"
+    },
+    {
+      "id": "none",
+      "run_id": "8ab5debf_073999df_none",
+      "trader": "Trader_A",
+      "diet": "只看交易信息",
+      "news": "none",
+      "protocol_hash": "8ab5debf",
+      "prompt_hash": "073999df",
+      "current": false,
+      "events": "data/runs/8ab5debf_073999df_none/events.jsonl"
+    },
+    {
+      "id": "wind",
+      "run_id": "4abbcd3e_0c8d9e91_wind",
+      "trader": "Trader_B",
+      "diet": "阅读财经新闻",
+      "news": "wind",
+      "protocol_hash": "4abbcd3e",
+      "prompt_hash": "0c8d9e91",
+      "current": false,
+      "events": "data/runs/4abbcd3e_0c8d9e91_wind/events.jsonl"
     },
     {
       "id": "wind",
@@ -30,8 +87,19 @@
       "news": "wind",
       "protocol_hash": "82c2fc33",
       "prompt_hash": "5feaf52a",
-      "current": true,
+      "current": false,
       "events": "data/runs/82c2fc33_5feaf52a_wind/events.jsonl"
+    },
+    {
+      "id": "wind",
+      "run_id": "8ab5debf_073999df_wind",
+      "trader": "Trader_B",
+      "diet": "阅读财经新闻",
+      "news": "wind",
+      "protocol_hash": "8ab5debf",
+      "prompt_hash": "073999df",
+      "current": false,
+      "events": "data/runs/8ab5debf_073999df_wind/events.jsonl"
     }
   ]
 }
